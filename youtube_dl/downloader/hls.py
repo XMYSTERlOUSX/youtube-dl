@@ -12,6 +12,7 @@ from .fragment import FragmentFD
 from .external import FFmpegFD
 
 from ..compat import (
+    compat_b64decode,
     compat_urllib_error,
     compat_urlparse,
     compat_struct_pack,
@@ -42,13 +43,11 @@ class HlsFD(FragmentFD):
             # no segments will definitely be appended to the end of the playlist.
             # r'#EXT-X-PLAYLIST-TYPE:EVENT',  # media segments may be appended to the end of
             #                                 # event media playlists [4]
-            r'#EXT-X-MAP:',  # media initialization [5]
 
             # 1. https://tools.ietf.org/html/draft-pantos-http-live-streaming-17#section-4.3.2.4
             # 2. https://tools.ietf.org/html/draft-pantos-http-live-streaming-17#section-4.3.2.2
             # 3. https://tools.ietf.org/html/draft-pantos-http-live-streaming-17#section-4.3.3.2
             # 4. https://tools.ietf.org/html/draft-pantos-http-live-streaming-17#section-4.3.3.5
-            # 5. https://tools.ietf.org/html/draft-pantos-http-live-streaming-17#section-4.3.2.5
         )
         check_results = [not re.search(feature, manifest) for feature in UNSUPPORTED_FEATURES]
         is_aes128_enc = '#EXT-X-KEY:METHOD=AES-128' in manifest
@@ -66,7 +65,7 @@ class HlsFD(FragmentFD):
         s = urlh.read().decode('utf-8', 'ignore')
 
         if not self.can_download(s, info_dict):
-            if info_dict.get('extra_param_to_segment_url') or info_dict.get('_decryption_key_url'):
+            if info_dict.get('extra_param_to_segment_url'):
                 self.report_error('pycrypto not found. Please install it.')
                 return False
             self.report_warning(
@@ -78,12 +77,12 @@ class HlsFD(FragmentFD):
             return fd.real_download(filename, info_dict)
 
         def is_ad_fragment_start(s):
-            return (s.startswith('#ANVATO-SEGMENT-INFO') and 'type=ad' in s
-                    or s.startswith('#UPLYNK-SEGMENT') and s.endswith(',ad'))
+            return (s.startswith('#ANVATO-SEGMENT-INFO') and 'type=ad' in s or
+                    s.startswith('#UPLYNK-SEGMENT') and s.endswith(',ad'))
 
         def is_ad_fragment_end(s):
-            return (s.startswith('#ANVATO-SEGMENT-INFO') and 'type=master' in s
-                    or s.startswith('#UPLYNK-SEGMENT') and s.endswith(',segment'))
+            return (s.startswith('#ANVATO-SEGMENT-INFO') and 'type=master' in s or
+                    s.startswith('#UPLYNK-SEGMENT') and s.endswith(',segment'))
 
         media_frags = 0
         ad_frags = 0
@@ -143,7 +142,7 @@ class HlsFD(FragmentFD):
                     count = 0
                     headers = info_dict.get('http_headers', {})
                     if byte_range:
-                        headers['Range'] = 'bytes=%d-%d' % (byte_range['start'], byte_range['end'] - 1)
+                        headers['Range'] = 'bytes=%d-%d' % (byte_range['start'], byte_range['end'])
                     while count <= fragment_retries:
                         try:
                             success, frag_content = self._download_fragment(
@@ -154,8 +153,8 @@ class HlsFD(FragmentFD):
                         except compat_urllib_error.HTTPError as err:
                             # Unavailable (possibly temporary) fragments may be served.
                             # First we try to retry then either skip or abort.
-                            # See https://github.com/ytdl-org/youtube-dl/issues/10165,
-                            # https://github.com/ytdl-org/youtube-dl/issues/10448).
+                            # See https://github.com/rg3/youtube-dl/issues/10165,
+                            # https://github.com/rg3/youtube-dl/issues/10448).
                             count += 1
                             if count <= fragment_retries:
                                 self.report_retry_fragment(err, frag_index, count, fragment_retries)
@@ -169,15 +168,14 @@ class HlsFD(FragmentFD):
                             'giving up after %s fragment retries' % fragment_retries)
                         return False
                     if decrypt_info['METHOD'] == 'AES-128':
+                        info_key = info_dict.get('hls_aes128_key')
+                        if info_key:
+                            info_key = compat_b64decode(info_key)
                         iv = decrypt_info.get('IV') or compat_struct_pack('>8xq', media_sequence)
-                        decrypt_info['KEY'] = decrypt_info.get('KEY') or self.ydl.urlopen(
-                            self._prepare_url(info_dict, info_dict.get('_decryption_key_url') or decrypt_info['URI'])).read()
-                        # Don't decrypt the content in tests since the data is explicitly truncated and it's not to a valid block
-                        # size (see https://github.com/ytdl-org/youtube-dl/pull/27660). Tests only care that the correct data downloaded,
-                        # not what it decrypts to.
-                        if not test:
-                            frag_content = AES.new(
-                                decrypt_info['KEY'], AES.MODE_CBC, iv).decrypt(frag_content)
+                        decrypt_info['KEY'] = decrypt_info.get('KEY') or info_key or self.ydl.urlopen(
+                            self._prepare_url(info_dict, decrypt_info['URI'])).read()
+                        frag_content = AES.new(
+                            decrypt_info['KEY'], AES.MODE_CBC, iv).decrypt(frag_content)
                     self._append_fragment(ctx, frag_content)
                     # We only download the first fragment during the test
                     if test:
