@@ -11,7 +11,7 @@ from ..utils import urljoin, ExtractorError
 
 
 class VdoCipherIE(InfoExtractor):
-    _VALID_URL = r'https?://(?:cdn-[a-z0-9]+\.vdocipher\.com|[a-z0-9]+\.cloudfront\.net)/playerAssets/[0-9\.]+/vdo/embed/index\.html#(?P<querystring>[a-zA-Z0-9&=]+)'
+    _VALID_URL = r'https?://(?:player\.vdocipher\.com|cdn-[a-z0-9]+\.vdocipher\.com|[a-z0-9]+\.cloudfront\.net)/playerAssets/[0-9x.]+/vdo/embed/index\.html#(?P<querystring>[a-zA-Z0-9&=]+)'
     _TESTS = [{
         'url': 'https://d1z78r8i505acl.cloudfront.net/playerAssets/1.4.7/vdo/embed/index.html#otp=20160313versASE313AYhObv4IOA32eG6QbevHoAuOXxFnLOHsVG12HQdM8dDyVp&playbackInfo=eyJ2aWRlb0lkIjoiNmYxYjY3YmUxNTQ4NDc2M2E4YzM4YTUxZDBkNmQ1OGQifQ==',
         'info_dict': {
